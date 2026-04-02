@@ -1,0 +1,30 @@
+<?php
+// Koneksi Database
+$host = "localhost";
+$user = "root";
+$pass = "";
+$db   = "db_monitoring";
+$conn = new mysqli($host, $user, $pass, $db);
+
+// Cek jika untuk simpan data (Background process)
+if (isset($_GET['simpan'])) {
+    $alat   = $_GET['alat'];
+    $lokasi = $_GET['lokasi'];
+    $tip    = $_GET['tip'];
+    $status = $_GET['status'];
+    $conn->query("INSERT INTO data_hujan (nama_alat, lokasi, tipping_value, status_hujan) VALUES ('$alat', '$lokasi', '$tip', '$status')");
+    exit;
+}
+
+// Untuk Unduh Excel
+header("Content-type: application/vnd-ms-excel");
+header("Content-Disposition: attachment; filename=Rekap_Data_Hujan.xls");
+
+echo "No\tNama Alat\tLokasi\tTipping (Tip)\tStatus\tWaktu Terdeteksi\n";
+
+$data = $conn->query("SELECT * FROM data_hujan ORDER BY waktu DESC");
+$i = 1;
+while($row = $data->fetch_assoc()){
+    echo $i++ . "\t" . $row['nama_alat'] . "\t" . $row['lokasi'] . "\t" . $row['tipping_value'] . "\t" . $row['status_hujan'] . "\t" . $row['waktu'] . "\n";
+}
+?>

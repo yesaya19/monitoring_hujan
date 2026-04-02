@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Curah Hujan Pro - Capstone</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; transition: all 0.3s; }
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; overflow-x: hidden; }
+        
+        /* Sidebar */
+        .sidebar { width: 280px; min-height: 100vh; background: #1e293b; color: white; padding: 20px; position: relative; z-index: 1000; }
+        .sidebar.hidden { margin-left: -280px; }
+        .toggle-btn { position: absolute; right: -45px; top: 15px; background: #1e293b; color: white; border: none; border-radius: 0 8px 8px 0; padding: 12px; cursor: pointer; }
+        
+        .tool-btn { width: 100%; margin-bottom: 12px; padding: 15px; border: 1px solid #334155; border-radius: 12px; background: #334155; color: #cbd5e1; cursor: pointer; text-align: left; }
+        .tool-btn.active { border-color: #38bdf8; background: #0f172a; color: white; box-shadow: 0 0 10px rgba(56, 189, 248, 0.3); }
+
+        .btn-download { width: 100%; padding: 12px; background: #10b981; color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; margin-bottom: 20px; text-decoration: none; display: block; text-align: center; }
+        .btn-download:hover { background: #059669; }
+
+        /* Main Content */
+        .main { flex: 1; padding: 25px; min-width: 0; }
+        .header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .clock-box { text-align: right; }
+        #liveClock { font-size: 1.5rem; font-weight: bold; color: #1e293b; }
+
+        /* Toast Notification */
+        #notifToast { position: fixed; top: 20px; right: -400px; width: 350px; background: white; border-left: 8px solid #ef4444; padding: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border-radius: 10px; z-index: 9999; display: flex; align-items: center; gap: 15px; }
+        #notifToast.show { right: 20px; }
+
+        /* Cards */
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+        .card { padding: 20px; border-radius: 20px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .bg-blue { background: linear-gradient(45deg, #3b82f6, #2dd4bf); }
+        .bg-green { background: linear-gradient(45deg, #10b981, #34d399); }
+        .bg-orange { background: linear-gradient(45deg, #f59e0b, #fbbf24); }
+        .bg-purple { background: linear-gradient(45deg, #8b5cf6, #d946ef); }
+
+        .chart-section { margin-top: 30px; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+    </style>
+</head>
+<body>
+
+    <div id="notifToast">
+        <i class="fas fa-cloud-showers-heavy fa-2x" style="color: #ef4444;"></i>
+        <div>
+            <h4 style="margin:0; color:#ef4444;">Peringatan Cuaca!</h4>
+            <p id="toastMsg" style="margin:5px 0 0; font-size: 0.9rem;">Hujan lebat terdeteksi!</p>
+        </div>
+        <i class="fas fa-times" onclick="hideToast()" style="margin-left:auto; cursor:pointer;"></i>
+    </div>
+
+    <div class="sidebar" id="sidebar">
+        <button class="toggle-btn" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+        <h2 style="margin-bottom: 25px;">🌧️ Rain Monitor</h2>
+        
+        <a href="unduh_excel.php" class="btn-download">
+            <i class="fas fa-file-excel"></i> Unduh Rekap Data
+        </a>
+
+        <div id="toolList">
+            <button class="tool-btn active" id="btn-alat1" onclick="selectTool('alat1', 'Purwokerto Selatan')">
+                <strong>Alat 1</strong><br><small>Purwokerto Selatan</small>
+            </button>
+            <button class="tool-btn" id="btn-alat2" onclick="selectTool('alat2', 'Purwokerto Timur')">
+                <strong>Alat 2</strong><br><small>Purwokerto Timur</small>
+            </button>
+            <button class="tool-btn" id="btn-alat3" onclick="selectTool('alat3', 'Purwokerto Utara')">
+                <strong>Alat 3</strong><br><small>Purwokerto Utara</small>
+            </button>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="header-container">
+            <div>
+                <h1 id="displayAlat" style="margin:0;">Dashboard Alat 1</h1>
+                <span id="displayLokasi" style="color: #64748b;">Lokasi: Purwokerto Selatan</span>
+            </div>
+            <div class="clock-box">
+                <div id="liveClock">00:00:00</div>
+                <div id="liveDate">Memuat...</div>
+            </div>
+        </div>
+
+        <div class="cards">
+            <div class="card bg-blue"><h3>Jumlah Tip / 5 Min</h3><h1 id="cardTip">0</h1></div>
+            <div class="card bg-green"><h3>Status</h3><h1 id="cardStatus">Normal</h1></div>
+            <div class="card bg-orange"><h3>Warning</h3><h1 id="cardWarn">Aman</h1></div>
+            <div class="card bg-purple"><h3>Speed LED</h3><h1 id="cardSpeed">80 km/j</h1></div>
+        </div>
+
+        <div class="chart-section">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="margin:0;">Grafik Tipping (Update per 5 Menit)</h3>
+                <button onclick="simulate()" style="cursor:pointer; padding:5px 15px; border-radius:5px; border:1px solid #ccc;">Test Data</button>
+            </div>
+            <canvas id="liveChart" height="100"></canvas>
+        </div>
+    </div>
+
+<script>
+    const toolLocs = { alat1: 'Purwokerto Selatan', alat2: 'Purwokerto Timur', alat3: 'Purwokerto Utara' };
+    let currentId = 'alat1';
+    let lastChartUpdate = 0; // Untuk melacak waktu update grafik terakhir
+
+    // 1. JAM DIGITAL
+    setInterval(() => {
+        const now = new Date();
+        document.getElementById('liveClock').innerText = now.toLocaleTimeString('id-ID');
+        document.getElementById('liveDate').innerText = now.toLocaleDateString('id-ID', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+    }, 1000);
+
+    // 2. SIDEBAR TOGGLE
+    function toggleSidebar() { document.getElementById('sidebar').classList.toggle('hidden'); }
+
+    // 3. GANTI ALAT
+    function selectTool(id, loc) {
+        currentId = id;
+        document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('btn-'+id).classList.add('active');
+        document.getElementById('displayAlat').innerText = "Dashboard " + id.toUpperCase();
+        document.getElementById('displayLokasi').innerText = "Lokasi: " + loc;
+        chart.data.labels = []; chart.data.datasets[0].data = []; chart.update();
+        lastChartUpdate = 0; // Reset timer saat ganti alat
+    }
+
+    // 4. NOTIFIKASI TOAST
+    function showToast(msg) {
+        document.getElementById('toastMsg').innerText = msg;
+        document.getElementById('notifToast').classList.add('show');
+        setTimeout(hideToast, 5000);
+    }
+    function hideToast() { document.getElementById('notifToast').classList.remove('show'); }
+
+    // 5. CHART REAL-TIME
+    const ctx = document.getElementById('liveChart').getContext('2d');
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: 'Jumlah Tip', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.4 }] },
+        options: { 
+            scales: { 
+                y: { beginAtZero: true, ticks: { precision: 0 } }, 
+                x: { grid: { display: false }, title: { display: true, text: 'Waktu Update (5 Menit)' } } 
+            } 
+        }
+    });
+
+    // 6. LOGIKA DATA MASUK (MQTT & DATABASE)
+    function onDataReceived(val) {
+        // Ganti angka ke bulat (tanpa koma)
+        const tip = Math.round(parseFloat(val));
+        let status = "Ringan", speed = 80, warn = "Aman";
+
+        if (tip >= 20) { status = "Sangat Lebat"; speed = 30; warn = "BAHAYA"; showToast("Hujan Sangat Lebat di " + toolLocs[currentId]); }
+        else if (tip >= 10) { status = "Lebat"; speed = 40; warn = "WASPADA"; showToast("Hujan Lebat di " + toolLocs[currentId]); }
+        else if (tip >= 5) { status = "Sedang"; speed = 60; warn = "Pantau"; }
+
+        // Update UI (Selalu update kartu saat data masuk)
+        document.getElementById('cardTip').innerText = tip;
+        document.getElementById('cardStatus').innerText = status;
+        document.getElementById('cardWarn').innerText = warn;
+        document.getElementById('cardSpeed').innerText = speed + " km/j";
+
+        // LOGIKA GRAFIK PER 5 MENIT
+        const now = Date.now();
+        const interval = 5 * 60 * 1000; // 5 menit dalam milidetik
+
+        if (now - lastChartUpdate >= interval || lastChartUpdate === 0) {
+            const timeLabel = new Date().toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'});
+            
+            chart.data.labels.push(timeLabel);
+            chart.data.datasets[0].data.push(tip);
+            
+            if (chart.data.labels.length > 12) { 
+                chart.data.labels.shift(); 
+                chart.data.datasets[0].data.shift(); 
+            }
+            
+            chart.update();
+            lastChartUpdate = now; // Perbarui waktu update terakhir
+            console.log("Grafik diupdate pada: " + timeLabel);
+        }
+
+        // Simpan ke Database via Background Fetch
+        fetch(`unduh_excel.php?simpan=true&alat=${currentId}&lokasi=${toolLocs[currentId]}&tip=${tip}&status=${status}`)
+            .then(() => console.log("Tersimpan ke DB"));
+
+        // Kirim balik ke ESP32
+        client.publish('led/' + currentId + '/speed', String(speed));
+    }
+
+    // SIMULASI (Mengabaikan timer 5 menit agar bisa dites langsung)
+    function simulate() { 
+        lastChartUpdate = 0; // Paksa grafik update untuk simulasi
+        onDataReceived(Math.floor(Math.random() * 25)); 
+    }
+
+    // 7. MQTT KONEKSI
+    const client = mqtt.connect('ws://broker.emqx.io:8083/mqtt');
+    client.on('connect', () => { 
+        client.subscribe('rainfall/+/tip'); 
+        console.log("MQTT Connected");
+    });
+    client.on('message', (topic, msg) => {
+        if (topic.includes(currentId)) onDataReceived(msg.toString());
+    });
+</script>
+</body>
+</html>
